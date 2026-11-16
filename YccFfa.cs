@@ -45,7 +45,6 @@ public class Ayarlar : BasePluginConfig
         new() { Ad = "M4A4", Birincil = "weapon_m4a1" },
         new() { Ad = "Sadece Deagle", Birincil = "", Ikincil = "weapon_deagle" },
         new() { Ad = "SSG 08 (Scout)", Birincil = "weapon_ssg08" },
-        new() { Ad = "SMG (MP9)", Birincil = "weapon_mp9" },
         new() { Ad = "Galil", Birincil = "weapon_galilar" },
     };
 }

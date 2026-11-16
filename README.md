@@ -1,6 +1,6 @@
 # YccFfa
 
-FFA (herkes herkese) deathmatch sunucusu için silah turları: belli aralıklarla (varsayılan 3 dakika) herkesin silahı değişir (AK-47, M4A1-S, AWP, Deagle, Scout...). Değişimden önce sohbette sıradaki tur duyurulur, değişince hayattakilerin (botlar dahil) silahı anında yenilenir. Öldürünce can ve şarjör yenilenir, öldürme serileri duyurulur, harita süresi bitince sıradaki haritaya geçilir.
+FFA (herkes herkese) deathmatch sunucusu için silah turları: belli aralıklarla (varsayılan 3 dakika) herkesin silahı değişir (AK-47, M4A1-S, AWP, Deagle, Scout, Galil). Değişimden önce sohbette sıradaki tur duyurulur, değişince hayattakilerin (botlar dahil) silahı anında yenilenir. Öldürünce can ve şarjör yenilenir, öldürme serileri duyurulur, harita süresi bitince sıradaki haritaya geçilir.
 
 > FFA deathmatch weapon rounds: everyone's weapon changes every few minutes, kill rewards, kill-streak announcements and map rotation.
 
