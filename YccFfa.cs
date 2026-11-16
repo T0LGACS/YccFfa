@@ -75,13 +75,32 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
         RegisterListener<Listeners.OnClientDisconnect>(s => _seri.Remove(s));
         RegisterEventHandler<EventPlayerDeath>(Olum);
         RegisterEventHandler<EventCsWinPanelMatch>((_, _) => { HaritaSonu(); return HookResult.Continue; });
-        RegisterEventHandler<EventPlayerSpawn>((e, _) => { if (e.Userid is { } p) _seri.Remove(p.Slot); return HookResult.Continue; });
+        // Deathmatch modunda oyun doğuşta sadece tabancayı veriyor (mp_*_default_primary'yi yok sayıyor, 2026-11-16 görüldü):
+        // turun ana silahı doğduktan hemen sonra eklentiden verilir
+        RegisterEventHandler<EventPlayerSpawn>((e, _) =>
+        {
+            if (e.Userid is not { IsValid: true } p) return HookResult.Continue;
+            _seri.Remove(p.Slot);
+            AddTimer(0.2f, () => DogusSilahi(p));
+            return HookResult.Continue;
+        });
 
         AddCommand("css_tur", "FFA: şu anki silah turu ve kalan süre", (p, info) =>
         {
             var t = Config.Turlar[_tur];
             var m = $"Şu anki tur: {{GREEN}}{t.Ad}{{DEFAULT}} · kalan {{GOLD}}{TurSirasi.Sure(_kalan)}";
             if (p == null) info.ReplyToCommand(ChatRenk.Temizle(m)); else Yaz(p, m);
+        });
+        // Sadece konsol: botların yeri, hızı ve hareket türü (botlar hareket etmiyor şikâyeti, 2026-11-16)
+        AddCommand("css_ffabot", "Konsol: bot durumu", (p, info) =>
+        {
+            if (p != null) return;
+            foreach (var b in Utilities.GetPlayers().Where(x => x.IsValid && x.IsBot))
+            {
+                var pw = b.PlayerPawn.Value;
+                var o = pw?.AbsOrigin; var v = pw?.AbsVelocity;
+                info.ReplyToCommand($"{b.PlayerName} takim={b.TeamNum} canli={b.PawnIsAlive} yer=({o?.X:0},{o?.Y:0},{o?.Z:0}) hiz={(v == null ? 0 : Math.Sqrt(v.X * v.X + v.Y * v.Y)):0} hareket={pw?.MoveType} can={pw?.Health} silah={pw?.WeaponServices?.ActiveWeapon.Value?.DesignerName}");
+            }
         });
         AddCommand("css_turdegis", "Admin: silah turunu değiştirir (numara verilmezse sıradaki)", (p, info) =>
         {
@@ -157,6 +176,18 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
             if (t.Birincil != "") p.GiveNamedItem(t.Birincil);
             if (!p.IsBot) AddTimer(0.1f, () => { if (p.IsValid && p.PawnIsAlive) p.ExecuteClientCommand(t.Birincil != "" ? "slot1" : "slot2"); });
         });
+    }
+
+    private void DogusSilahi(CCSPlayerController p)
+    {
+        var ws = p.IsValid && p.PawnIsAlive ? p.PlayerPawn.Value?.WeaponServices : null;
+        if (ws == null) return;
+        var t = Config.Turlar[_tur];
+        var var_ = ws.MyWeapons.Select(h => h.Value).Where(w => w != null && w.IsValid).Select(w => w!.DesignerName).ToHashSet();
+        if (t.Ikincil != "" && !var_.Contains(t.Ikincil)) p.GiveNamedItem(t.Ikincil);
+        if (t.Birincil == "" || var_.Contains(t.Birincil)) return;
+        p.GiveNamedItem(t.Birincil);
+        if (!p.IsBot) AddTimer(0.1f, () => { if (p.IsValid && p.PawnIsAlive) p.ExecuteClientCommand("slot1"); });
     }
 
     private HookResult Olum(EventPlayerDeath e, GameEventInfo _)
