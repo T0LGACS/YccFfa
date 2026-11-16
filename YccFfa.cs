@@ -29,6 +29,7 @@ public class Ayarlar : BasePluginConfig
     // false: silah turu yok, herkes satın alır (sunucu sahibi 2026-11-16: "silah satın almayı aç random silah vermeyi kapat")
     [JsonPropertyName("SilahTurlari")] public bool SilahTurlari { get; set; } = false;
     [JsonPropertyName("Para")] public int Para { get; set; } = 16000;   // her doğuşta
+    [JsonPropertyName("OzelOlumBildirimi")] public bool OzelOlumBildirimi { get; set; } = false;   // öldürme bildirimi sadece öldürene/ölene
     [JsonPropertyName("AwpSiniri")] public int AwpSiniri { get; set; } = 2;   // aynı anda AWP'si olan en fazla kişi, fazlası sıraya girer
     [JsonPropertyName("TurSuresi")] public int TurSuresi { get; set; } = 180;
     [JsonPropertyName("UyariSuresi")] public int UyariSuresi { get; set; } = 10;
@@ -90,7 +91,8 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
         RegisterListener<Listeners.OnClientDisconnect>(s => _seri.Remove(s));
         RegisterEventHandler<EventPlayerDeath>(Olum);
         // Öldürme bildirimi sadece öldürene ve ölene gider, başkaları birbirini öldürünce görünmez
-        RegisterEventHandler<EventPlayerDeath>((e, info) =>
+        // Çökme şüphelisi (2026-11-16, sunucu 15 dk'da bir çöküyor): ayarla açılır, varsayılan kapalı
+        if (Config.OzelOlumBildirimi) RegisterEventHandler<EventPlayerDeath>((e, info) =>
         {
             foreach (var p in new[] { e.Userid, e.Attacker }.Distinct())
                 if (p is { IsValid: true, IsBot: false }) e.FireEventToClient(p);
