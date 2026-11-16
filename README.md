@@ -28,7 +28,7 @@ Sohbette `!` ile, konsolda `css_` ile yazılır.
 
 ## Notlar
 
-Sunucu deathmatch modunda açılmalı: `+game_type 1 +game_mode 2`. `cfg/ffa.cfg` (herkes herkese, satın alma kapalı, bedava zırh, sınırsız yedek mermi, botlar) ve `cfg/gamemode_deathmatch_server.cfg` dosyalarını sunucunun `game/csgo/cfg/` klasörüne kopyala; ikincisi oyunun kendi deathmatch ayarlarından sonra çalışıp bizimkilerin ezilmesini önler. Turlar, süreler, can ödülü, seri duyuruları ve harita listesi ayar dosyasından değişir.
+Sunucu normal modda açılır (`+game_type 0 +game_mode 0`): herkes herkese, ölünce yeniden doğma ve rastgele doğma `cfg/ffa.cfg` ile gelir. Deathmatch modu (`1/2`) da çalışır ama doğunca 'satın alma menüsü / rastgele silahlar' yazısı gösterir. `cfg/ffa.cfg` ile `cfg/gamemode_casual_server.cfg` (deathmatch için `gamemode_deathmatch_server.cfg`) dosyalarını sunucunun `game/csgo/cfg/` klasörüne kopyala; ikincisi oyunun kendi mod ayarlarından sonra çalışıp bizimkilerin ezilmesini önler. Satın alma süresi açık ama silah alınamaz: kapalıyken botlar doğunca yerinde duruyor. Turlar, süreler, can ödülü, seri duyuruları ve harita listesi ayar dosyasından değişir.
 
 ## Lisans
 

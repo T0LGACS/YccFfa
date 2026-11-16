@@ -102,15 +102,9 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
 
         // Deathmatch'in "X ile bir düşman öldürdüğün için N puan" yazıları gösterilmez (sunucu sahibi 2026-11-16: "bu yazıları kaldır").
         // Oyun bunları TextMsg ile yolluyor; puan ödülü anahtarları yakalanıp durdurulur, diğer yazılar geçer.
-        var textMsg = UserMessage.FindIdByName("CUserMessageTextMsg");
-        HookUserMessage(textMsg > 0 ? textMsg : 124, um =>
-        {
-            if (um.GetRepeatedFieldCount("param") == 0) return HookResult.Continue;
-            var anahtar = um.ReadString("param", 0);
-            if (PuanYazisi(anahtar)) return HookResult.Stop;
-            if (anahtar.StartsWith("#") && _gorulen.Add(anahtar)) Console.WriteLine("[YccFfa] yazı geçti: " + anahtar);   // shortcut: teşhis, yazılar oturunca silinecek
-            return HookResult.Continue;
-        }, HookMode.Pre);
+        // Sunucu açılırken mesaj tablosu henüz hazır olmayabiliyor ("Could not find user message", 2026-11-16): olmazsa harita başlayınca
+        PuanYazilariniKapat();
+        RegisterListener<Listeners.OnMapStart>(_ => PuanYazilariniKapat());
 
         AddCommand("css_tur", "FFA: şu anki silah turu ve kalan süre", (p, info) =>
         {
@@ -203,6 +197,27 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
             if (t.Birincil != "") p.GiveNamedItem(t.Birincil);
             if (!p.IsBot) AddTimer(0.1f, () => { if (p.IsValid && p.PawnIsAlive) p.ExecuteClientCommand(t.Birincil != "" ? "slot1" : "slot2"); });
         });
+    }
+
+    private bool _mesajKancasi;
+    private void PuanYazilariniKapat()
+    {
+        if (_mesajKancasi) return;
+        try
+        {
+            int id;
+            try { id = UserMessage.FindIdByName("CUserMessageTextMsg"); } catch { id = 124; }
+            HookUserMessage(id > 0 ? id : 124, um =>
+            {
+                if (um.GetRepeatedFieldCount("param") == 0) return HookResult.Continue;
+                var anahtar = um.ReadString("param", 0);
+                if (PuanYazisi(anahtar)) return HookResult.Stop;
+                if (anahtar.StartsWith("#") && _gorulen.Add(anahtar)) Console.WriteLine("[YccFfa] yazı geçti: " + anahtar);   // shortcut: teşhis, yazılar oturunca silinecek
+                return HookResult.Continue;
+            }, HookMode.Pre);
+            _mesajKancasi = true;
+        }
+        catch (Exception e) { Console.WriteLine("[YccFfa] mesaj kancası kurulamadı, harita başlayınca denenecek: " + e.Message); }
     }
 
     private readonly HashSet<string> _gorulen = new();
