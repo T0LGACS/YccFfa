@@ -4,6 +4,7 @@ using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Modules.Admin;
 using CounterStrikeSharp.API.Modules.Timers;
 using CounterStrikeSharp.API.Modules.Utils;
+using CounterStrikeSharp.API.Modules.Cvars;
 using CounterStrikeSharp.API.Modules.UserMessages;
 
 namespace YccFfa;
@@ -86,6 +87,7 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
             if (e.Userid is not { IsValid: true } p) return HookResult.Continue;
             _seri.Remove(p.Slot);
             AddTimer(0.2f, () => DogusSilahi(p));
+            Server.NextFrame(() => RastgeleYer(p));
             if (Config.KorumaSuresi > 0) Server.NextFrame(() =>
             {
                 if (p.PlayerPawn.Value is not { IsValid: true } pw) return;
@@ -197,6 +199,26 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
             if (t.Birincil != "") p.GiveNamedItem(t.Birincil);
             if (!p.IsBot) AddTimer(0.1f, () => { if (p.IsValid && p.PawnIsAlive) p.ExecuteClientCommand(t.Birincil != "" ? "slot1" : "slot2"); });
         });
+    }
+
+    // Normal modda oyun takım doğma noktalarını kullanıyor (deathmatch modu "rastgele silahlar" yazısı gösterdiği için normal moddayız,
+    // 2026-11-16): doğan oyuncu haritanın deathmatch doğma noktalarından rakiplerden en uzak olanına taşınır.
+    private void RastgeleYer(CCSPlayerController p)
+    {
+        if (ConVar.Find("game_type")?.GetPrimitiveValue<int>() == 1) return;   // deathmatch modu kendisi yapıyor
+        var pw = p.IsValid && p.PawnIsAlive ? p.PlayerPawn.Value : null;
+        if (pw == null) return;
+        var noktalar = Utilities.FindAllEntitiesByDesignerName<CBaseEntity>("info_deathmatch_spawn").ToList();
+        if (noktalar.Count == 0) noktalar = Utilities.FindAllEntitiesByDesignerName<CBaseEntity>("info_player_terrorist")
+            .Concat(Utilities.FindAllEntitiesByDesignerName<CBaseEntity>("info_player_counterterrorist")).ToList();
+        if (noktalar.Count == 0) return;
+        var digerleri = Utilities.GetPlayers().Where(o => o != p && o.PawnIsAlive && o.PlayerPawn.Value?.AbsOrigin != null)
+            .Select(o => o.PlayerPawn.Value!.AbsOrigin!).ToList();
+        float Uzaklik(Vector v) => digerleri.Count == 0 ? 0 : digerleri.Min(d => (d.X - v.X) * (d.X - v.X) + (d.Y - v.Y) * (d.Y - v.Y) + (d.Z - v.Z) * (d.Z - v.Z));
+        var aday = Enumerable.Range(0, 6).Select(_ => noktalar[_r.Next(noktalar.Count)]).Where(n => n.AbsOrigin != null)
+            .OrderByDescending(n => Uzaklik(n.AbsOrigin!)).FirstOrDefault();
+        if (aday == null) return;
+        pw.Teleport(aday.AbsOrigin, aday.AbsRotation, new Vector(0, 0, 0));
     }
 
     private bool _mesajKancasi;
