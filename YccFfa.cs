@@ -79,6 +79,14 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
         RegisterListener<Listeners.OnMapStart>(_ => AddTimer(1f, () => Baslat(_r.Next(Config.Turlar.Count))));
         RegisterListener<Listeners.OnClientDisconnect>(s => _seri.Remove(s));
         RegisterEventHandler<EventPlayerDeath>(Olum);
+        // Öldürme bildirimi sadece öldürene ve ölene gider, başkaları birbirini öldürünce görünmez
+        RegisterEventHandler<EventPlayerDeath>((e, info) =>
+        {
+            foreach (var p in new[] { e.Userid, e.Attacker }.Distinct())
+                if (p is { IsValid: true, IsBot: false }) e.FireEventToClient(p);
+            info.DontBroadcast = true;
+            return HookResult.Continue;
+        }, HookMode.Pre);
         RegisterEventHandler<EventCsWinPanelMatch>((_, _) => { HaritaSonu(); return HookResult.Continue; });
         // Deathmatch modunda oyun doğuşta sadece tabancayı veriyor (mp_*_default_primary'yi yok sayıyor, 2026-11-16 görüldü):
         // turun ana silahı doğduktan hemen sonra eklentiden verilir
