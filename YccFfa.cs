@@ -218,6 +218,8 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
     // Yer açılınca sıradaki (hayattaki) oyuncuya AWP verilir
     private void AwpSirasi()
     {
+        // Para hiç bitmesin: harcayınca saniyesinde dolar (doğuştaki para eklenti yeniden yüklenince gelmiyordu, 2026-11-16)
+        if (!Config.SilahTurlari) foreach (var o in Utilities.GetPlayers().Where(o => o.IsValid && o.InGameMoneyServices?.Account < Config.Para)) ParaVer(o);
         if (Config.SilahTurlari || _awpSira.Count == 0 || AwpSayisi() >= Config.AwpSiniri) return;
         var p = _awpSira.Select(Utilities.GetPlayerFromSlot).FirstOrDefault(x => x is { IsValid: true, PawnIsAlive: true });
         if (p == null) return;
