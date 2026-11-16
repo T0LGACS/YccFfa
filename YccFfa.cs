@@ -25,6 +25,9 @@ public class Ayarlar : BasePluginConfig
     [JsonPropertyName("TurSuresi")] public int TurSuresi { get; set; } = 180;
     [JsonPropertyName("UyariSuresi")] public int UyariSuresi { get; set; } = 10;
     [JsonPropertyName("Karisik")] public bool Karisik { get; set; } = true;
+    // Doğduktan sonra hasar almama süresi (sn). Oyunun kendi korumasını (mp_respawn_immunitytime) kullanmıyoruz: o açıkken
+    // ekranda "B: satın alma menüsü / F3: rastgele silahlar" yazısı çıkıyor (sunucu sahibi 2026-11-16)
+    [JsonPropertyName("KorumaSuresi")] public float KorumaSuresi { get; set; } = 2f;
     [JsonPropertyName("OldurunceCan")] public int OldurunceCan { get; set; } = 25;
     [JsonPropertyName("OldurunceSarjor")] public bool OldurunceSarjor { get; set; } = true;
     [JsonPropertyName("Seriler")] public List<int> Seriler { get; set; } = new() { 3, 5, 10, 15, 20 };
@@ -35,14 +38,15 @@ public class Ayarlar : BasePluginConfig
     [JsonPropertyName("On")] public string On { get; set; } = "{GOLD}[FFA]{DEFAULT}";
     [JsonPropertyName("Turlar")] public List<Tur> Turlar { get; set; } = new()
     {
-        new() { Ad = "AK-47", Birincil = "weapon_ak47", Ikincil = "weapon_deagle" },
-        new() { Ad = "M4A1-S", Birincil = "weapon_m4a1_silencer", Ikincil = "weapon_usp_silencer" },
-        new() { Ad = "AWP", Birincil = "weapon_awp", Ikincil = "weapon_deagle" },
-        new() { Ad = "M4A4", Birincil = "weapon_m4a1", Ikincil = "weapon_glock" },
+        // Her turda tek silah (sunucu sahibi 2026-11-16: "AK raundunda tabancayı silmiyor"); Ikincil boşsa tabanca alınır
+        new() { Ad = "AK-47", Birincil = "weapon_ak47" },
+        new() { Ad = "M4A1-S", Birincil = "weapon_m4a1_silencer" },
+        new() { Ad = "AWP", Birincil = "weapon_awp" },
+        new() { Ad = "M4A4", Birincil = "weapon_m4a1" },
         new() { Ad = "Sadece Deagle", Birincil = "", Ikincil = "weapon_deagle" },
-        new() { Ad = "SSG 08 (Scout)", Birincil = "weapon_ssg08", Ikincil = "weapon_p250" },
-        new() { Ad = "SMG (MP9)", Birincil = "weapon_mp9", Ikincil = "weapon_tec9" },
-        new() { Ad = "Galil / FAMAS", Birincil = "weapon_galilar", Ikincil = "weapon_fiveseven" },
+        new() { Ad = "SSG 08 (Scout)", Birincil = "weapon_ssg08" },
+        new() { Ad = "SMG (MP9)", Birincil = "weapon_mp9" },
+        new() { Ad = "Galil", Birincil = "weapon_galilar" },
     };
 }
 
@@ -83,6 +87,12 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
             if (e.Userid is not { IsValid: true } p) return HookResult.Continue;
             _seri.Remove(p.Slot);
             AddTimer(0.2f, () => DogusSilahi(p));
+            if (Config.KorumaSuresi > 0) Server.NextFrame(() =>
+            {
+                if (p.PlayerPawn.Value is not { IsValid: true } pw) return;
+                pw.TakesDamage = false;
+                AddTimer(Config.KorumaSuresi, () => { if (pw.IsValid) pw.TakesDamage = true; });
+            });
             return HookResult.Continue;
         });
 
@@ -210,9 +220,18 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
         var yuvalar = ws.MyWeapons.Select(h => h.Value).Where(w => w != null && w.IsValid)
             .Select(w => w!.GetVData<CCSWeaponBaseVData>()?.GearSlot).ToList();
         if (t.Ikincil != "" && !yuvalar.Contains(gear_slot_t.GEAR_SLOT_PISTOL)) p.GiveNamedItem(t.Ikincil);
+        if (t.Ikincil == "") TabancalariAl(p, ws);
         if (t.Birincil == "") return;
         if (!yuvalar.Contains(gear_slot_t.GEAR_SLOT_RIFLE)) p.GiveNamedItem(t.Birincil);
         if (!p.IsBot) AddTimer(0.3f, () => { if (p.IsValid && p.PawnIsAlive) p.ExecuteClientCommand("slot1"); });
+    }
+
+    // Tek silahlı turda tabanca(lar) alınır (deathmatch doğuşta tabanca veriyor)
+    private static void TabancalariAl(CCSPlayerController p, CPlayer_WeaponServices ws)
+    {
+        var tabancalar = ws.MyWeapons.Select(h => h.Value).Where(w => w != null && w.IsValid && w!.GetVData<CCSWeaponBaseVData>()?.GearSlot == gear_slot_t.GEAR_SLOT_PISTOL)
+            .Select(w => w!.DesignerName).Distinct().ToList();
+        foreach (var ad in tabancalar) p.RemoveItemByDesignerName(ad, true);
     }
 
     private HookResult Olum(EventPlayerDeath e, GameEventInfo _)
