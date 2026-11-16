@@ -6,6 +6,9 @@ using CounterStrikeSharp.API.Modules.Timers;
 using CounterStrikeSharp.API.Modules.Utils;
 using CounterStrikeSharp.API.Modules.Cvars;
 using CounterStrikeSharp.API.Modules.UserMessages;
+using CounterStrikeSharp.API.Modules.Memory;
+using CounterStrikeSharp.API.Modules.Memory.DynamicFunctions;
+using CounterStrikeSharp.API.Modules.Entities.Constants;
 
 namespace YccFfa;
 
@@ -23,6 +26,10 @@ public class Tur
 
 public class Ayarlar : BasePluginConfig
 {
+    // false: silah turu yok, herkes satın alır (sunucu sahibi 2026-11-16: "silah satın almayı aç random silah vermeyi kapat")
+    [JsonPropertyName("SilahTurlari")] public bool SilahTurlari { get; set; } = false;
+    [JsonPropertyName("Para")] public int Para { get; set; } = 16000;   // her doğuşta
+    [JsonPropertyName("AwpSiniri")] public int AwpSiniri { get; set; } = 2;   // aynı anda AWP'si olan en fazla kişi, fazlası sıraya girer
     [JsonPropertyName("TurSuresi")] public int TurSuresi { get; set; } = 180;
     [JsonPropertyName("UyariSuresi")] public int UyariSuresi { get; set; } = 10;
     [JsonPropertyName("Karisik")] public bool Karisik { get; set; } = true;
@@ -76,7 +83,10 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
 
     public override void Load(bool hotReload)
     {
-        RegisterListener<Listeners.OnMapStart>(_ => AddTimer(1f, () => Baslat(_r.Next(Config.Turlar.Count))));
+        RegisterListener<Listeners.OnMapStart>(_ => AddTimer(1f, () => { if (Config.SilahTurlari) Baslat(_r.Next(Config.Turlar.Count)); else TurlariKapat(); }));
+        RegisterListener<Listeners.OnClientDisconnect>(s => _awpSira.Remove(s));
+        VirtualFunctions.CCSPlayer_ItemServices_CanAcquireFunc.Hook(AlabilirMi, HookMode.Pre);
+        AddTimer(1f, AwpSirasi, TimerFlags.REPEAT);
         RegisterListener<Listeners.OnClientDisconnect>(s => _seri.Remove(s));
         RegisterEventHandler<EventPlayerDeath>(Olum);
         // Öldürme bildirimi sadece öldürene ve ölene gider, başkaları birbirini öldürünce görünmez
@@ -94,7 +104,8 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
         {
             if (e.Userid is not { IsValid: true } p) return HookResult.Continue;
             _seri.Remove(p.Slot);
-            AddTimer(0.2f, () => DogusSilahi(p));
+            if (Config.SilahTurlari) AddTimer(0.2f, () => DogusSilahi(p));
+            else Server.NextFrame(() => ParaVer(p));
             Server.NextFrame(() => RastgeleYer(p));
             if (Config.KorumaSuresi > 0) Server.NextFrame(() =>
             {
@@ -107,7 +118,7 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
 
         // Oyuncular satın alma menüsünü (rastgele silah dahil) açamaz (sunucu sahibi 2026-11-16: "rastgele satın almayı kapat").
         // Satın alma süresi yine de açık kalır: kapalıyken botlar doğunca alışveriş bekleyip yerinde duruyordu.
-        foreach (var k in new[] { "buymenu", "buy", "autobuy", "rebuy", "buyrandom" })
+        if (Config.SilahTurlari) foreach (var k in new[] { "buymenu", "buy", "autobuy", "rebuy", "buyrandom" })
             AddCommandListener(k, (p, _) => p != null && p.IsValid && !p.IsBot ? HookResult.Handled : HookResult.Continue);
 
         // Deathmatch'in "X ile bir düşman öldürdüğün için N puan" yazıları gösterilmez (sunucu sahibi 2026-11-16: "bu yazıları kaldır").
@@ -120,7 +131,8 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
         {
             var t = Config.Turlar[_tur];
             var m = $"Şu anki tur: {{GREEN}}{t.Ad}{{DEFAULT}} · kalan {{GOLD}}{TurSirasi.Sure(_kalan)}";
-            if (p == null) info.ReplyToCommand(ChatRenk.Temizle(m)); else Yaz(p, m);
+            if (!Config.SilahTurlari) m = $"Silah turu kapalı. AWP sırası: {_awpSira.Count} kişi";
+        if (p == null) info.ReplyToCommand(ChatRenk.Temizle(m)); else Yaz(p, m);
         });
         // Sadece konsol: botların yeri, hızı ve hareket türü (botlar hareket etmiyor şikâyeti, 2026-11-16)
         AddCommand("css_ffabot", "Konsol: bot durumu", (p, info) =>
@@ -140,7 +152,7 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
                 : TurSirasi.Sonraki(_tur, Config.Turlar.Count, Config.Karisik, _sira, _r);
             Baslat(sonraki);
         });
-        if (hotReload) Baslat(0);
+        if (hotReload) { if (Config.SilahTurlari) Baslat(0); else TurlariKapat(); }
     }
 
     // Yeni tur: doğunca gelecek silahlar (mp_*_default_*) ayarlanır, hayattakilerin silahları değişir
@@ -161,6 +173,62 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
         foreach (var p in Oyuncular()) p.PrintToCenter($"Yeni tur: {t.Ad}");
         _saat?.Kill();
         _saat = AddTimer(1f, Saniye, TimerFlags.REPEAT | TimerFlags.STOP_ON_MAPCHANGE);
+    }
+
+    private void TurlariKapat()
+    {
+        _saat?.Kill();
+        foreach (var k in new[] { "t", "ct" }) { Server.ExecuteCommand($"mp_{k}_default_primary \"\""); Server.ExecuteCommand($"mp_{k}_default_secondary \"\""); }
+        Server.ExecuteCommand("mp_buy_allow_guns 255; mp_buy_allow_grenades 1; mp_maxmoney 65535");
+    }
+
+    private void ParaVer(CCSPlayerController p)
+    {
+        if (!p.IsValid || p.InGameMoneyServices == null) return;
+        p.InGameMoneyServices.Account = Config.Para;
+        Utilities.SetStateChanged(p, "CCSPlayerController", "m_pInGameMoneyServices");
+    }
+
+    // ---- AWP sınırı ve sırası
+    private int _veriliyor = -1;
+    private readonly List<int> _awpSira = new();   // oyuncu slotları, geliş sırasına göre
+    private static bool AwpVar(CCSPlayerController p) => p.IsValid && p.PawnIsAlive &&
+        p.PlayerPawn.Value?.WeaponServices?.MyWeapons.Any(h => h.Value is { IsValid: true } w && w.DesignerName == "weapon_awp") == true;
+    private static int AwpSayisi() => Utilities.GetPlayers().Count(AwpVar);
+
+    private HookResult AlabilirMi(DynamicHook h)
+    {
+        if (Config.SilahTurlari || Config.AwpSiniri <= 0) return HookResult.Continue;
+        var item = h.GetParam<CEconItemView>(1);
+        var vdata = VirtualFunctions.GetCSWeaponDataFromKeyFunc.Invoke(-1, item.ItemDefinitionIndex.ToString());
+        if (vdata?.Name != "weapon_awp") return HookResult.Continue;
+        var p = h.GetParam<CCSPlayer_ItemServices>(0).Pawn.Value?.Controller.Value?.As<CCSPlayerController>();
+        if (p == null || !p.IsValid || AwpVar(p) || p.Slot == _veriliyor) return HookResult.Continue;
+        // Botlar AWP almaz: yerler oyunculara kalsın
+        if (!p.IsBot && AwpSayisi() < Config.AwpSiniri && (_awpSira.Count == 0 || _awpSira[0] == p.Slot)) { _awpSira.Remove(p.Slot); return HookResult.Continue; }
+        if (!p.IsBot && h.GetParam<AcquireMethod>(2) == AcquireMethod.Buy)
+        {
+            if (!_awpSira.Contains(p.Slot)) _awpSira.Add(p.Slot);
+            Yaz(p, $"AWP dolu ({Config.AwpSiniri} kişi kullanıyor). Sıradasın: {{GOLD}}{_awpSira.IndexOf(p.Slot) + 1}{{DEFAULT}}. Yer açılınca AWP sana verilecek.");
+        }
+        h.SetReturn(AcquireResult.NotAllowedByProhibition);
+        return HookResult.Stop;
+    }
+
+    // Yer açılınca sıradaki (hayattaki) oyuncuya AWP verilir
+    private void AwpSirasi()
+    {
+        if (Config.SilahTurlari || _awpSira.Count == 0 || AwpSayisi() >= Config.AwpSiniri) return;
+        var p = _awpSira.Select(Utilities.GetPlayerFromSlot).FirstOrDefault(x => x is { IsValid: true, PawnIsAlive: true });
+        if (p == null) return;
+        _awpSira.Remove(p.Slot);
+        if (AwpVar(p)) return;
+        var ws = p.PlayerPawn.Value?.WeaponServices;
+        var birincil = ws?.MyWeapons.Select(x => x.Value).FirstOrDefault(w => w is { IsValid: true } && w.GetVData<CCSWeaponBaseVData>()?.GearSlot == gear_slot_t.GEAR_SLOT_RIFLE);
+        if (birincil != null) p.RemoveItemByDesignerName(birincil.DesignerName, true);
+        _veriliyor = p.Slot;
+        try { p.GiveNamedItem("weapon_awp"); } finally { _veriliyor = -1; }
+        Yaz(p, "{GREEN}Sıra sende, AWP verildi!");
     }
 
     // Harita bitince sıradaki haritaya geçer (sırada şu anki harita varsa ondan sonrakine)
