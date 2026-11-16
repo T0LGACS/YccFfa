@@ -85,7 +85,8 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
     {
         RegisterListener<Listeners.OnMapStart>(_ => AddTimer(1f, () => { if (Config.SilahTurlari) Baslat(_r.Next(Config.Turlar.Count)); else TurlariKapat(); }));
         RegisterListener<Listeners.OnClientDisconnect>(s => _awpSira.Remove(s));
-        VirtualFunctions.CCSPlayer_ItemServices_CanAcquireFunc.Hook(AlabilirMi, HookMode.Pre);
+        // CanAcquire kancası her satın almayı "daha fazla taşıyamazsın" diye bozuyordu (2026-11-16): AWP alındıktan sonra bakılır
+        RegisterEventHandler<EventItemPickup>((e, _) => { if (e.Item == "awp" && e.Userid != null) Server.NextFrame(() => AwpKontrol(e.Userid)); return HookResult.Continue; });
         AddTimer(1f, AwpSirasi, TimerFlags.REPEAT);
         RegisterListener<Listeners.OnClientDisconnect>(s => _seri.Remove(s));
         RegisterEventHandler<EventPlayerDeath>(Olum);
@@ -196,23 +197,16 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
         p.PlayerPawn.Value?.WeaponServices?.MyWeapons.Any(h => h.Value is { IsValid: true } w && w.DesignerName == "weapon_awp") == true;
     private static int AwpSayisi() => Utilities.GetPlayers().Count(AwpVar);
 
-    private HookResult AlabilirMi(DynamicHook h)
+    // Sınır aşıldıysa AWP geri alınır, parası iade edilir, oyuncu sıraya girer. Botlar AWP tutmaz.
+    private void AwpKontrol(CCSPlayerController p)
     {
-        if (Config.SilahTurlari || Config.AwpSiniri <= 0) return HookResult.Continue;
-        var item = h.GetParam<CEconItemView>(1);
-        var vdata = VirtualFunctions.GetCSWeaponDataFromKeyFunc.Invoke(-1, item.ItemDefinitionIndex.ToString());
-        if (vdata?.Name != "weapon_awp") return HookResult.Continue;
-        var p = h.GetParam<CCSPlayer_ItemServices>(0).Pawn.Value?.Controller.Value?.As<CCSPlayerController>();
-        if (p == null || !p.IsValid || AwpVar(p) || p.Slot == _veriliyor) return HookResult.Continue;
-        // Botlar AWP almaz: yerler oyunculara kalsın
-        if (!p.IsBot && AwpSayisi() < Config.AwpSiniri && (_awpSira.Count == 0 || _awpSira[0] == p.Slot)) { _awpSira.Remove(p.Slot); return HookResult.Continue; }
-        if (!p.IsBot && h.GetParam<AcquireMethod>(2) == AcquireMethod.Buy)
-        {
-            if (!_awpSira.Contains(p.Slot)) _awpSira.Add(p.Slot);
-            Yaz(p, $"AWP dolu ({Config.AwpSiniri} kişi kullanıyor). Sıradasın: {{GOLD}}{_awpSira.IndexOf(p.Slot) + 1}{{DEFAULT}}. Yer açılınca AWP sana verilecek.");
-        }
-        h.SetReturn(AcquireResult.NotAllowedByProhibition);
-        return HookResult.Stop;
+        if (Config.SilahTurlari || Config.AwpSiniri <= 0 || !p.IsValid || !AwpVar(p) || p.Slot == _veriliyor) return;
+        var digerleri = Utilities.GetPlayers().Count(o => o != p && AwpVar(o));
+        if (!p.IsBot && digerleri < Config.AwpSiniri && (_awpSira.Count == 0 || _awpSira[0] == p.Slot)) { _awpSira.Remove(p.Slot); return; }
+        p.RemoveItemByDesignerName("weapon_awp", true);
+        if (p.IsBot) return;
+        if (!_awpSira.Contains(p.Slot)) _awpSira.Add(p.Slot);
+        Yaz(p, $"AWP dolu ({Config.AwpSiniri} kişi kullanıyor). Sıradasın: {{GOLD}}{_awpSira.IndexOf(p.Slot) + 1}{{DEFAULT}}. Yer açılınca AWP sana verilecek.");
     }
 
     // Yer açılınca sıradaki (hayattaki) oyuncuya AWP verilir
