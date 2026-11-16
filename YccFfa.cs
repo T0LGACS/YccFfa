@@ -108,6 +108,7 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
             _seri.Remove(p.Slot);
             if (Config.SilahTurlari) AddTimer(0.2f, () => DogusSilahi(p));
             else if (!p.IsBot) AddTimer(0.5f, () => { ParaVer(p); SilahlariGeriVer(p); });
+            else AddTimer(0.5f, () => BotSilahi(p));
             Server.NextFrame(() => RastgeleYer(p));
             if (Config.KorumaSuresi > 0) Server.NextFrame(() =>
             {
@@ -208,6 +209,15 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
         if (p.IsBot) return;
         if (!_awpSira.Contains(p.Slot)) _awpSira.Add(p.Slot);
         Yaz(p, $"AWP dolu ({Config.AwpSiniri} kişi kullanıyor). Sıradasın: {{GOLD}}{_awpSira.IndexOf(p.Slot) + 1}{{DEFAULT}}. Yer açılınca AWP sana verilecek.");
+    }
+
+    // Botlar doğunca satın almıyor (2026-11-16): rastgele bir tüfek verilir (AWP yok)
+    private static readonly string[] BotTufekleri = { "weapon_ak47", "weapon_m4a1", "weapon_m4a1_silencer", "weapon_galilar", "weapon_famas", "weapon_ssg08", "weapon_aug", "weapon_sg556" };
+    private void BotSilahi(CCSPlayerController p)
+    {
+        var ws = p.IsValid && p.PawnIsAlive ? p.PlayerPawn.Value?.WeaponServices : null;
+        if (ws == null || ws.MyWeapons.Any(h => h.Value is { IsValid: true } w && w.GetVData<CCSWeaponBaseVData>()?.GearSlot == gear_slot_t.GEAR_SLOT_RIFLE)) return;
+        p.GiveNamedItem(BotTufekleri[_r.Next(BotTufekleri.Length)]);
     }
 
     private CounterStrikeSharp.API.Modules.Timers.Timer? _saniyelik;
