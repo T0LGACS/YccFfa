@@ -4,6 +4,7 @@ using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Modules.Admin;
 using CounterStrikeSharp.API.Modules.Timers;
 using CounterStrikeSharp.API.Modules.Utils;
+using CounterStrikeSharp.API.Modules.UserMessages;
 
 namespace YccFfa;
 
@@ -84,6 +85,23 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
             AddTimer(0.2f, () => DogusSilahi(p));
             return HookResult.Continue;
         });
+
+        // Oyuncular satın alma menüsünü (rastgele silah dahil) açamaz (sunucu sahibi 2026-11-16: "rastgele satın almayı kapat").
+        // Satın alma süresi yine de açık kalır: kapalıyken botlar doğunca alışveriş bekleyip yerinde duruyordu.
+        foreach (var k in new[] { "buymenu", "buy", "autobuy", "rebuy", "buyrandom" })
+            AddCommandListener(k, (p, _) => p != null && p.IsValid && !p.IsBot ? HookResult.Handled : HookResult.Continue);
+
+        // Deathmatch'in "X ile bir düşman öldürdüğün için N puan" yazıları gösterilmez (sunucu sahibi 2026-11-16: "bu yazıları kaldır").
+        // Oyun bunları TextMsg ile yolluyor; puan ödülü anahtarları yakalanıp durdurulur, diğer yazılar geçer.
+        var textMsg = UserMessage.FindIdByName("CUserMessageTextMsg");
+        HookUserMessage(textMsg > 0 ? textMsg : 124, um =>
+        {
+            if (um.GetRepeatedFieldCount("param") == 0) return HookResult.Continue;
+            var anahtar = um.ReadString("param", 0);
+            if (PuanYazisi(anahtar)) return HookResult.Stop;
+            if (anahtar.StartsWith("#") && _gorulen.Add(anahtar)) Console.WriteLine("[YccFfa] yazı geçti: " + anahtar);   // shortcut: teşhis, yazılar oturunca silinecek
+            return HookResult.Continue;
+        }, HookMode.Pre);
 
         AddCommand("css_tur", "FFA: şu anki silah turu ve kalan süre", (p, info) =>
         {
@@ -177,6 +195,10 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
             if (!p.IsBot) AddTimer(0.1f, () => { if (p.IsValid && p.PawnIsAlive) p.ExecuteClientCommand(t.Birincil != "" ? "slot1" : "slot2"); });
         });
     }
+
+    private readonly HashSet<string> _gorulen = new();
+    public static bool PuanYazisi(string anahtar) =>
+        System.Text.RegularExpressions.Regex.IsMatch(anahtar, "Point_Award|BonusPoints|Bonus_Points|DM_Kill|dm_.*points|Cannot_Carry_Anymore", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     private void DogusSilahi(CCSPlayerController p)
     {
