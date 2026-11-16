@@ -27,7 +27,7 @@ public class Ayarlar : BasePluginConfig
     [JsonPropertyName("Karisik")] public bool Karisik { get; set; } = true;
     // Doğduktan sonra hasar almama süresi (sn). Oyunun kendi korumasını (mp_respawn_immunitytime) kullanmıyoruz: o açıkken
     // ekranda "B: satın alma menüsü / F3: rastgele silahlar" yazısı çıkıyor (sunucu sahibi 2026-11-16)
-    [JsonPropertyName("KorumaSuresi")] public float KorumaSuresi { get; set; } = 2f;
+    [JsonPropertyName("KorumaSuresi")] public float KorumaSuresi { get; set; } = 0f;   // 0: oyunun kendi koruması kullanılır (mp_respawn_immunitytime)
     [JsonPropertyName("OldurunceCan")] public int OldurunceCan { get; set; } = 25;
     [JsonPropertyName("OldurunceSarjor")] public bool OldurunceSarjor { get; set; } = true;
     [JsonPropertyName("Seriler")] public List<int> Seriler { get; set; } = new() { 3, 5, 10, 15, 20 };
