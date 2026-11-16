@@ -200,16 +200,19 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
     public static bool PuanYazisi(string anahtar) =>
         System.Text.RegularExpressions.Regex.IsMatch(anahtar, "Point_Award|BonusPoints|Bonus_Points|DM_Kill|dm_.*points|Cannot_Carry_Anymore", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
+    // Silahlar yuvasına göre bakılır: M4A1-S / USP-S gibi silahların sunucudaki adı farklı olabiliyor, adla bakınca
+    // ikinci kez verilip "daha fazla taşıyamazsın" çıkıyordu. Doğunca ana silah ele alınır (oyun tabancayla doğuruyor).
     private void DogusSilahi(CCSPlayerController p)
     {
         var ws = p.IsValid && p.PawnIsAlive ? p.PlayerPawn.Value?.WeaponServices : null;
         if (ws == null) return;
         var t = Config.Turlar[_tur];
-        var var_ = ws.MyWeapons.Select(h => h.Value).Where(w => w != null && w.IsValid).Select(w => w!.DesignerName).ToHashSet();
-        if (t.Ikincil != "" && !var_.Contains(t.Ikincil)) p.GiveNamedItem(t.Ikincil);
-        if (t.Birincil == "" || var_.Contains(t.Birincil)) return;
-        p.GiveNamedItem(t.Birincil);
-        if (!p.IsBot) AddTimer(0.1f, () => { if (p.IsValid && p.PawnIsAlive) p.ExecuteClientCommand("slot1"); });
+        var yuvalar = ws.MyWeapons.Select(h => h.Value).Where(w => w != null && w.IsValid)
+            .Select(w => w!.GetVData<CCSWeaponBaseVData>()?.GearSlot).ToList();
+        if (t.Ikincil != "" && !yuvalar.Contains(gear_slot_t.GEAR_SLOT_PISTOL)) p.GiveNamedItem(t.Ikincil);
+        if (t.Birincil == "") return;
+        if (!yuvalar.Contains(gear_slot_t.GEAR_SLOT_RIFLE)) p.GiveNamedItem(t.Birincil);
+        if (!p.IsBot) AddTimer(0.3f, () => { if (p.IsValid && p.PawnIsAlive) p.ExecuteClientCommand("slot1"); });
     }
 
     private HookResult Olum(EventPlayerDeath e, GameEventInfo _)
