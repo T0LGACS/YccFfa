@@ -28,7 +28,14 @@ public class Ayarlar : BasePluginConfig
 {
     // false: silah turu yok, herkes satın alır (sunucu sahibi 2026-11-16: "silah satın almayı aç random silah vermeyi kapat")
     [JsonPropertyName("SilahTurlari")] public bool SilahTurlari { get; set; } = false;
-    [JsonPropertyName("Para")] public int Para { get; set; } = 16000;   // her doğuşta
+    // Her doğuşta; oyunun en fazla parası (sunucu sahibi 2026-11-18: 16000 bir canda 4-5 silahta bitiyordu, "parayı büyüt")
+    [JsonPropertyName("Para")] public int Para { get; set; } = 65535;
+    // Ölünce kaç sn sonra doğulur; oyunun anında doğurması kapalı (ffa.cfg mp_respawn_on_death 0), eklenti doğurur. Anında doğunca
+    // ceset oyuncuyla birlikte yeni yere gidiyordu; sahte ceset kötü göründü (sunucu sahibi 2026-11-18: "1 sn doğuş beklemesi")
+    [JsonPropertyName("DogusBekleme")] public float DogusBekleme { get; set; } = 1f;
+    // Doğduktan sonra bu kadar sn oyuncunun ve silahlarının sesleri sadece kendisine gider: silah verme/çekme sesi
+    // doğduğu yeri ele veriyordu (sunucu sahibi 2026-11-18). 0 = kapalı
+    [JsonPropertyName("DogusSessiz")] public float DogusSessiz { get; set; } = 0.7f;   // silah verme/çekme en geç ~0,7 sn'de biter; uzarsa ilk ateş de duyulmaz
     [JsonPropertyName("OzelOlumBildirimi")] public bool OzelOlumBildirimi { get; set; } = false;   // öldürme bildirimi sadece öldürene/ölene
     [JsonPropertyName("AwpSiniri")] public int AwpSiniri { get; set; } = 2;   // aynı anda AWP'si olan en fazla kişi, fazlası sıraya girer
     [JsonPropertyName("TurSuresi")] public int TurSuresi { get; set; } = 180;
@@ -87,9 +94,11 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
         RegisterListener<Listeners.OnMapStart>(_ => AddTimer(1f, () => { if (Config.SilahTurlari) Baslat(_r.Next(Config.Turlar.Count)); else TurlariKapat(); SaniyelikBaslat(); }));
         RegisterListener<Listeners.OnClientDisconnect>(s => { _awpSira.Remove(s); _silahlar.Remove(s); });
         // CanAcquire kancası her satın almayı "daha fazla taşıyamazsın" diye bozuyordu (2026-11-16): AWP alındıktan sonra bakılır
-        RegisterEventHandler<EventItemPickup>((e, _) => { if (e.Item == "awp" && e.Userid != null) Server.NextFrame(() => AwpKontrol(e.Userid)); return HookResult.Continue; });
+        // Userid olay anında okunur: olay sonraki karede silinmiş oluyor, okumak sunucuyu çökertiyordu (2026-11-18, çökme dökümü)
+        RegisterEventHandler<EventItemPickup>((e, _) => { if (e.Item == "awp" && e.Userid is { } p) Server.NextFrame(() => AwpKontrol(p)); return HookResult.Continue; });
         RegisterListener<Listeners.OnClientDisconnect>(s => _seri.Remove(s));
         RegisterEventHandler<EventPlayerDeath>(Olum);
+        HookUserMessage(208, SesKancasi, HookMode.Pre);
         // Öldürme bildirimi sadece öldürene ve ölene gider, başkaları birbirini öldürünce görünmez
         // Çökme şüphelisi (2026-11-16, sunucu 15 dk'da bir çöküyor): ayarla açılır, varsayılan kapalı
         if (Config.OzelOlumBildirimi) RegisterEventHandler<EventPlayerDeath>((e, info) =>
@@ -106,8 +115,9 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
         {
             if (e.Userid is not { IsValid: true } p) return HookResult.Continue;
             _seri.Remove(p.Slot);
+            SessizBaslat(p);
             if (Config.SilahTurlari) AddTimer(0.2f, () => DogusSilahi(p));
-            else if (!p.IsBot) AddTimer(0.5f, () => { ParaVer(p); SilahlariGeriVer(p); });
+            else if (!p.IsBot) AddTimer(0.2f, () => SilahlariGeriVer(p));
             else AddTimer(0.5f, () => BotSilahi(p));
             Server.NextFrame(() => RastgeleYer(p));
             if (Config.KorumaSuresi > 0) Server.NextFrame(() =>
@@ -182,14 +192,9 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
     {
         _saat?.Kill();
         foreach (var k in new[] { "t", "ct" }) { Server.ExecuteCommand($"mp_{k}_default_primary \"\""); Server.ExecuteCommand($"mp_{k}_default_secondary \"\""); }
-        Server.ExecuteCommand("mp_buy_allow_guns 255; mp_buy_allow_grenades 0; mp_maxmoney 65535");
-    }
-
-    private void ParaVer(CCSPlayerController p)
-    {
-        if (!p.IsValid || p.IsBot || p.InGameMoneyServices == null) return;
-        p.InGameMoneyServices.Account = Config.Para;
-        Utilities.SetStateChanged(p, "CCSPlayerController", "m_pInGameMoneyServices");
+        // Para her doğuşta oyunun kendisi tarafından tamamlanır: eklentinin yazdığı para oyuncunun ekranına gitmiyor,
+        // satın alma menüsü azalan paraya göre kapanıyordu (2026-11-18)
+        Server.ExecuteCommand($"mp_buy_allow_guns 255; mp_buy_allow_grenades 0; mp_maxmoney {Config.Para}; cash_player_respawn_amount {Config.Para}");
     }
 
     // ---- AWP sınırı ve sırası
@@ -235,7 +240,9 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
         var ws = p.PlayerPawn.Value?.WeaponServices;
         if (ws == null) return;
         string? Yuva(gear_slot_t y) => ws.MyWeapons.Select(h => h.Value).FirstOrDefault(w => w is { IsValid: true } && w.GetVData<CCSWeaponBaseVData>()?.GearSlot == y)?.DesignerName;
-        _silahlar[p.Slot] = (Yuva(gear_slot_t.GEAR_SLOT_RIFLE), Yuva(gear_slot_t.GEAR_SLOT_PISTOL));
+        // Elde yoksa eski kayıt kalır: doğuşla silahın verilmesi arasındaki kayıt tüfeği siliyordu (sunucu sahibi 2026-11-18: "bazen geri gelmiyor")
+        _silahlar.TryGetValue(p.Slot, out var eski);
+        _silahlar[p.Slot] = (Yuva(gear_slot_t.GEAR_SLOT_RIFLE) ?? eski.tufek, Yuva(gear_slot_t.GEAR_SLOT_PISTOL) ?? eski.tabanca);
     }
     private void SilahlariGeriVer(CCSPlayerController p)
     {
@@ -251,8 +258,6 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
     private void AwpSirasi()
     {
         if (!Config.SilahTurlari) foreach (var o in Oyuncular().Where(o => o.PawnIsAlive)) SilahlariKaydet(o);
-        // Para hiç bitmesin: harcayınca saniyesinde dolar (doğuştaki para eklenti yeniden yüklenince gelmiyordu, 2026-11-16)
-        if (!Config.SilahTurlari) foreach (var o in Oyuncular().Where(o => o.PawnIsAlive && o.InGameMoneyServices?.Account < Config.Para)) ParaVer(o);
         if (Config.SilahTurlari || _awpSira.Count == 0 || AwpSayisi() >= Config.AwpSiniri) return;
         var p = _awpSira.Select(Utilities.GetPlayerFromSlot).FirstOrDefault(x => x is { IsValid: true, PawnIsAlive: true });
         if (p == null) return;
@@ -381,10 +386,45 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
         foreach (var ad in tabancalar) p.RemoveItemByDesignerName(ad, true);
     }
 
+    // ---- Doğuş sesleri: yeni doğan oyuncunun (ve silahlarının) sesleri DogusSessiz sn sadece kendisine gider
+    private readonly Dictionary<uint, (CCSPlayerController p, float bitis)> _sessiz = new();   // pawn index -> oyuncu, bitiş
+    private void SessizBaslat(CCSPlayerController p)
+    {
+        if (Config.DogusSessiz <= 0 || p.PlayerPawn.Value is not { IsValid: true } pw) return;
+        _sessiz[pw.Index] = (p, Server.CurrentTime + Config.DogusSessiz);
+    }
+
+    // CMsgSosStartSoundEvent (208). Sunucudaki her ses buradan geçer: listede kimse yoksa hemen çıkılır
+    private bool _sesBozuk;
+    private HookResult SesKancasi(UserMessage um)
+    {
+        if (_sessiz.Count == 0 || _sesBozuk) return HookResult.Continue;
+        try { return SesSuz(um); }
+        catch (Exception x) { _sesBozuk = true; Console.WriteLine("[YccFfa] ses kancası kapatıldı: " + x.Message); return HookResult.Continue; }
+    }
+    private HookResult SesSuz(UserMessage um)
+    {
+        var kaynak = (uint)um.ReadInt("source_entity_index");
+        if (!_sessiz.TryGetValue(kaynak, out var s))
+        {
+            // Silah sesinin kaynağı silahın kendisi: sahibine bakılır
+            var sahip = Utilities.GetEntityFromIndex<CBaseEntity>((int)kaynak)?.OwnerEntity.Value;
+            if (sahip == null || !_sessiz.TryGetValue(sahip.Index, out s)) return HookResult.Continue;
+        }
+        if (Server.CurrentTime > s.bitis) { foreach (var k in _sessiz.Where(x => Server.CurrentTime > x.Value.bitis).Select(x => x.Key).ToList()) _sessiz.Remove(k); return HookResult.Continue; }
+        um.Recipients.Clear();
+        if (s.p.IsValid && !s.p.IsBot) um.Recipients.Add(s.p);
+        return HookResult.Continue;
+    }
+
     private HookResult Olum(EventPlayerDeath e, GameEventInfo _)
     {
         var olen = e.Userid;
         if (olen != null) _seri.Remove(olen.Slot);
+        if (olen is { IsValid: true }) AddTimer(Config.DogusBekleme, () =>
+        {
+            if (olen.IsValid && !olen.PawnIsAlive && olen.Team is CsTeam.Terrorist or CsTeam.CounterTerrorist) olen.Respawn();
+        });
         var o = e.Attacker;
         if (o == null || !o.IsValid || o == olen || o.IsBot || !o.PawnIsAlive) return HookResult.Continue;
         var pawn = o.PlayerPawn.Value;
