@@ -30,13 +30,13 @@ public class Ayarlar : BasePluginConfig
     [JsonPropertyName("SilahTurlari")] public bool SilahTurlari { get; set; } = false;
     // Her doğuşta; oyunun en fazla parası (sunucu sahibi 2026-11-18: 16000 bir canda 4-5 silahta bitiyordu, "parayı büyüt")
     [JsonPropertyName("Para")] public int Para { get; set; } = 65535;
-    // Ölünce kaç sn sonra doğulur; oyunun anında doğurması kapalı (ffa.cfg mp_respawn_on_death 0), eklenti doğurur. Anında doğunca
-    // ceset oyuncuyla birlikte yeni yere gidiyordu; sahte ceset kötü göründü (sunucu sahibi 2026-11-18: "1 sn doğuş beklemesi")
+    // Ölüp de (ya da takım seçip de) bu kadar sn sonra hâlâ doğmamış oyuncuyu eklenti doğurur. Oyunun kendi anında doğurması
+    // açık (ffa.cfg mp_respawn_on_death 1, sunucu sahibi 2026-11-18: "direk doğmayı tekrar yap"); bu yedek, kapatılırsa iş görür.
     [JsonPropertyName("DogusBekleme")] public float DogusBekleme { get; set; } = 1f;
     // Doğduktan sonra bu kadar sn oyuncunun ve silahlarının sesleri sadece kendisine gider: silah verme/çekme sesi
     // doğduğu yeri ele veriyordu (sunucu sahibi 2026-11-18). 0 = kapalı
     [JsonPropertyName("DogusSessiz")] public float DogusSessiz { get; set; } = 0.7f;   // silah verme/çekme en geç ~0,7 sn'de biter; uzarsa ilk ateş de duyulmaz
-    [JsonPropertyName("OzelOlumBildirimi")] public bool OzelOlumBildirimi { get; set; } = false;   // öldürme bildirimi sadece öldürene/ölene
+    [JsonPropertyName("OzelOlumBildirimi")] public bool OzelOlumBildirimi { get; set; } = false;   // öldürme bildirimi sadece öldürene/ölene (FFA'da açık)
     [JsonPropertyName("AwpSiniri")] public int AwpSiniri { get; set; } = 2;   // aynı anda AWP'si olan en fazla kişi, fazlası sıraya girer
     [JsonPropertyName("TurSuresi")] public int TurSuresi { get; set; } = 180;
     [JsonPropertyName("UyariSuresi")] public int UyariSuresi { get; set; } = 10;
@@ -99,8 +99,15 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
         RegisterListener<Listeners.OnClientDisconnect>(s => _seri.Remove(s));
         RegisterEventHandler<EventPlayerDeath>(Olum);
         HookUserMessage(208, SesKancasi, HookMode.Pre);
-        // Öldürme bildirimi sadece öldürene ve ölene gider, başkaları birbirini öldürünce görünmez
-        // Çökme şüphelisi (2026-11-16, sunucu 15 dk'da bir çöküyor): ayarla açılır, varsayılan kapalı
+        // Oyunun doğurması kapalıyken sonradan girip takım seçen hiç ölmediği için doğmuyordu, raunt da bitmiyor
+        // (sunucu sahibi 2026-11-18: "arkadaşlarım girdi doğamıyorlar")
+        RegisterEventHandler<EventPlayerTeam>((e, _) =>
+        {
+            if (e.Userid is { IsValid: true } p && e.Team is 2 or 3) AddTimer(Config.DogusBekleme, () => DogmamissaDogur(p));
+            return HookResult.Continue;
+        });
+        // Öldürme bildirimi sadece öldürene ve ölene gider, başkaları birbirini öldürünce görünmez (16.11'deki "çökme şüphesi"
+        // yersizdi, çökme AWP olayından geliyordu; FFA'da 18.11'den beri açık)
         if (Config.OzelOlumBildirimi) RegisterEventHandler<EventPlayerDeath>((e, info) =>
         {
             foreach (var p in new[] { e.Userid, e.Attacker }.Distinct())
@@ -417,14 +424,16 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
         return HookResult.Continue;
     }
 
+    private static void DogmamissaDogur(CCSPlayerController p)
+    {
+        if (p.IsValid && !p.PawnIsAlive && p.Team is CsTeam.Terrorist or CsTeam.CounterTerrorist) p.Respawn();
+    }
+
     private HookResult Olum(EventPlayerDeath e, GameEventInfo _)
     {
         var olen = e.Userid;
         if (olen != null) _seri.Remove(olen.Slot);
-        if (olen is { IsValid: true }) AddTimer(Config.DogusBekleme, () =>
-        {
-            if (olen.IsValid && !olen.PawnIsAlive && olen.Team is CsTeam.Terrorist or CsTeam.CounterTerrorist) olen.Respawn();
-        });
+        if (olen is { IsValid: true }) AddTimer(Config.DogusBekleme, () => DogmamissaDogur(olen));
         var o = e.Attacker;
         if (o == null || !o.IsValid || o == olen || o.IsBot || !o.PawnIsAlive) return HookResult.Continue;
         var pawn = o.PlayerPawn.Value;
