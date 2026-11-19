@@ -399,13 +399,17 @@ public class YccFfa : BasePlugin, IPluginConfig<Ayarlar>
     {
         if (Config.DogusSessiz <= 0 || p.PlayerPawn.Value is not { IsValid: true } pw) return;
         _sessiz[pw.Index] = (p, Server.CurrentTime + Config.DogusSessiz);
+        _sessizSon = Server.CurrentTime + Config.DogusSessiz;
     }
 
     // CMsgSosStartSoundEvent (208). Sunucudaki her ses buradan geçer: listede kimse yoksa hemen çıkılır
     private bool _sesBozuk;
+    private float _sessizSon;   // en geç biten sessizlik
     private HookResult SesKancasi(UserMessage um)
     {
         if (_sessiz.Count == 0 || _sesBozuk) return HookResult.Continue;
+        // Hepsinin süresi dolduysa liste tek seferde boşalır: dolanlar silinmediği için her seste mesaj okunuyordu (2026-11-19 profil)
+        if (Server.CurrentTime > _sessizSon) { _sessiz.Clear(); return HookResult.Continue; }
         try { return SesSuz(um); }
         catch (Exception x) { _sesBozuk = true; Console.WriteLine("[YccFfa] ses kancası kapatıldı: " + x.Message); return HookResult.Continue; }
     }
